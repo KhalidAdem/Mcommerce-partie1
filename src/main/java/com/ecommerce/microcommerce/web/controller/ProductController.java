@@ -2,7 +2,11 @@ package com.ecommerce.microcommerce.web.controller;
 
 import com.ecommerce.microcommerce.dao.ProductDao;
 import com.ecommerce.microcommerce.model.Product;
+import com.ecommerce.microcommerce.web.exceptions.ProduitGratuitException;
 import com.ecommerce.microcommerce.web.exceptions.ProduitIntrouvableException;
+import com.fasterxml.jackson.core.JsonGenerationException;
+import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ser.FilterProvider;
 import com.fasterxml.jackson.databind.ser.impl.SimpleBeanPropertyFilter;
 import com.fasterxml.jackson.databind.ser.impl.SimpleFilterProvider;
@@ -15,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import javax.validation.Valid;
+import java.io.IOException;
 import java.net.URI;
 import java.util.List;
 
@@ -26,6 +31,10 @@ public class ProductController {
 
     @Autowired
     private ProductDao productDao;
+    private String jsonInString = new String();
+    private int marge;
+    ObjectMapper mapper = new ObjectMapper();
+    public static String newline = System.getProperty("line.separator");
 
 
     //Récupérer la liste des produits
@@ -74,6 +83,10 @@ public class ProductController {
         if (productAdded == null)
             return ResponseEntity.noContent().build();
 
+
+        else if(productAdded.getPrix()== 0) throw new ProduitGratuitException("Le produit avec l'id " + productAdded.getId()+ " est gratuit!");
+
+
         URI location = ServletUriComponentsBuilder
                 .fromCurrentRequest()
                 .path("/{id}")
@@ -86,13 +99,30 @@ public class ProductController {
     @DeleteMapping (value = "/Produits/{id}")
     public void supprimerProduit(@PathVariable int id) {
 
-        productDao.delete(id);
+        productDao.deleteById(id);
     }
 
-    @PutMapping (value = "/Produits")
-    public void updateProduit(@RequestBody Product product) {
+    //@PutMapping (value = "/Produits")
+    /*public void updateProduit(@RequestBody Product product) {
 
         productDao.save(product);
+    }*/
+
+    //control du prix lors de l'update
+    @PutMapping (value = "/Produits")
+    public ResponseEntity<Void>  updateProduit(@Valid @RequestBody Product product) {
+
+        Product productUpdated = productDao.save(product);
+        if(productUpdated.getPrix()== 0) throw new ProduitGratuitException("Le produit avec l'id " + productUpdated.getId()+ " est gratuit!");
+
+
+        URI location = ServletUriComponentsBuilder
+                .fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(productUpdated.getId())
+                .toUri();
+
+        return ResponseEntity.created(location).build();
     }
 
 
@@ -102,6 +132,77 @@ public class ProductController {
 
         return productDao.chercherUnProduitCher(400);
     }
+
+
+    //Calcul des marges
+    @RequestMapping(value = "/AdminProduits", method = RequestMethod.GET)
+
+    public  String calculerMargeProduit() {
+
+        jsonInString = "";
+        Iterable<Product> produits = productDao.findAll();
+
+        for(Product produit : produits) {
+
+            marge = produit.getPrix()- produit.getPrixAchat();
+           // Objecttojackson(produit) permet de convertir l'objet produit en string
+           //Pour chaque itération on rajoute la marge et on concatène les string
+           //on concatène <br> pour les passages à la ligne
+            //Affichage sur le navigateur
+            //jsonInString = jsonInString + Objecttojackson(produit)  + marge + "," + "<br>";
+            //Affichage sur postman
+            jsonInString = jsonInString + Objecttojackson(produit)  + marge + "," + newline;
+
+        }
+        return jsonInString;
+    }
+
+
+
+    public String Objecttojackson(Product prd) {
+
+        try {
+            // Convert object to JSON string
+            //on concatène "PRODUCT pour obtenir le même résultat de ce qui est demandé
+            jsonInString = "\"PRODUCT" + mapper.writeValueAsString(prd) + "\" : ";
+             //System.out.println(jsonInString);
+
+            // Convert object to JSON string and pretty print
+            //jsonInString = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(prd);
+            //jsonInString = jsonInString + newline + "marge: " + prix;
+
+
+        } catch (JsonGenerationException e) {
+            e.printStackTrace();
+        } catch (JsonMappingException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return jsonInString;
+    }
+
+
+    //Récupérer la liste des produits triés
+
+    @RequestMapping(value = "/ProduitsTries", method = RequestMethod.GET)
+
+    public MappingJacksonValue trierProduitsParOrdreAlphabetique () {
+
+        Iterable<Product> produits = productDao.findAllSort();
+
+        SimpleBeanPropertyFilter monFiltre = SimpleBeanPropertyFilter.serializeAllExcept("prixAchat");
+
+        FilterProvider listDeNosFiltres = new SimpleFilterProvider().addFilter("monFiltreDynamique", monFiltre);
+
+        MappingJacksonValue produitsFiltres = new MappingJacksonValue(produits);
+
+        produitsFiltres.setFilters(listDeNosFiltres);
+
+        return produitsFiltres;
+    }
+
+
 
 
 
